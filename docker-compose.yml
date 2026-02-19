@@ -1,0 +1,221 @@
+x-airflow-common:
+  &airflow-common
+  image: apache/airflow:2.11.0
+  environment:
+    - LOAD_EXAMPLES=off
+    - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+    - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+    - AIRFLOW__CORE__FERNET_KEY=''
+    - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+    - AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS=False
+    - AIRFLOW__WEBSERVER__SECRET_KEY=''
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_started
+
+services:
+  postgres:
+    image: postgres:14
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - 8081:8081
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+
+  airflow-init:
+    <<: *airflow-common
+    command: bash -c 'airflow db init && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com'
+    environment:
+      AIRFLOW__CORE__FERNET_KEY: ''
+      _AIRFLOW_DB_UPGRADE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_ROLE: Admin
+  mongodb:
+    image: mongo:6.0
+    container_name: clearml-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - backend
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: clearml-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: clearml-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+
+  apiserver:
+    image: clearml/server:latest
+    container_name: clearml-apiserver
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    ports:
+      - "8008:8008"
+    volumes:
+      - clearml_logs:/var/log/clearml
+      - clearml_config:/opt/clearml/config
+      - fileserver_data:/mnt/fileserver  # Общий с fileserver
+    environment:
+      - CLEARML_MONGODB_SERVICE_HOST=mongodb
+      - CLEARML_REDIS_SERVICE_HOST=redis
+      - CLEARML_ELASTICSEARCH_SERVICE_HOST=elasticsearch
+      - CLEARML__apiserver__pre_populate__enabled=true
+    networks:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8008/api/v2.0/debug.ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  fileserver:
+    image: clearml/server:latest
+    container_name: clearml-fileserver
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      - clearml_logs:/var/log/clearml
+      - fileserver_data:/mnt/fileserver
+      - clearml_config:/opt/clearml/config
+    networks:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  webserver:
+    image: clearml/server:latest
+    container_name: clearml-webserver
+    restart: unless-stopped
+    depends_on:
+      - apiserver
+    ports:
+      - "8080:80"
+    volumes:
+      - clearml_logs:/var/log/clearml
+      - clearml_config:/opt/clearml/config
+    networks:
+      - frontend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # agent-services:
+  #   image: clearml-agent:latest
+  #   container_name: clearml-agent-services
+  #   privileged: true
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - clearml_agent:/root/.clearml
+  #     - clearml_logs:/var/log/clearml
+  #   environment:
+  #     - CLEARML_API_HOST=http://apiserver:8008
+  #     - CLEARML_WEB_HOST=http://localhost:8080
+  #     - CLEARML_FILES_HOST=http://localhost:8081
+  #     # Раскомментируйте после первого запуска (из UI)
+  #     # - CLEARML_API_ACCESS_KEY=your_key
+  #     # - CLEARML_API_SECRET_KEY=your_secret
+  #   depends_on:
+  #     - apiserver
+  #     - fileserver
+  #   networks:
+  #     - backend
+
+networks:
+  backend:
+  frontend:
+
+volumes:
+  mongodb_data:
+  redis_data:
+  elasticsearch_data:
+  fileserver_data:
+  clearml_logs:
+  clearml_config:
+  clearml_agent:
+  postgres-db-volume:
