@@ -1,6 +1,9 @@
 Airflow UI: http://localhost:8081 (admin/admin)
+
 ClearML UI: http://localhost:8080 (admin@clearml.com/password)
+
 API: http://localhost:8008
+
 Files: http://localhost:8081
 
 # Запуск
@@ -59,7 +62,8 @@ helm install clearml-agent clearml/clearml-agent \
   --create-namespace \
   -f values.yaml
 ```
-
+```text
 Airflow (ETL) → ClearML Pipeline → K8s Agent (ML) → ClearML UI (результаты)
         ↓
    E2E MLOps в одном клике
+```
