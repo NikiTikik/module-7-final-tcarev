@@ -8,7 +8,12 @@ import pandas as pd
 import pandera as pa
 from pandera import Column, DataFrameSchema
 import logging
-import os
+
+HYPER_PARAMS = {
+    'n_estimators': [50, 100, 200],
+    'max_depth': [3, 5, 7],
+    'min_samples_split': [2, 5]
+}
 
 taxi_schema = DataFrameSchema({
     "pickup_datetime": Column(pa.DateTime, required=True),
@@ -37,12 +42,7 @@ def download_and_validate(**kwargs):
     
     df = pd.read_csv(local_path)
     df['pickup_datetime'] = pd.to_datetime(df['pickup_datetime'])
-    
-    try:
-        df = taxi_schema.validate(df)
-    except pa.errors.SchemaError as e:
-        logging.error(f"Validation failed: {e}")
-        raise
+    df = taxi_schema.validate(df)
     
     df['trip_duration'] = (df['dropoff_datetime'] - df['pickup_datetime']).dt.total_seconds()
     
@@ -53,7 +53,7 @@ def download_and_validate(**kwargs):
     return processed_path
 
 def launch_clearml_pipeline(**kwargs):
-    Task.init(project_name='Taxi Aggregator', task_name='Airflow → ClearML Launcher')
+    task = Task.init(project_name='Taxi Aggregator', task_name='Airflow → ClearML Launcher')
     
     pipe = PipelineController(
         name='Taxi ML Daily Pipeline',
@@ -61,17 +61,35 @@ def launch_clearml_pipeline(**kwargs):
         default_execution_queue='default-ml'
     )
     
-    pipe.add_function_step('data_prep', prepare_data_for_ml, parents=[], execution_queue='ml-cpu')
-    pipe.add_step('train_models', train_models, parents=['data_prep'], 
-                     execution_queue='ml-gpu', hyper_parameters=hyper_params)
-    pipe.add_step('evaluate', evaluate, parents=['train_models'])
+    pipe.add_step(
+        name='data_prep',
+        base_task_name='prepare_data_for_ml',
+        parents=[],
+        execution_queue='ml-cpu'
+    )
     
-    logging.info(f"Pipeline launched: {pipeline_id}")
+    pipe.add_step(
+        name='train_models',
+        base_task_name='train_models',  # Функция должна быть доступна агенту
+        parents=['data_prep'],
+        execution_queue='ml-gpu',
+        hyper_parameters=HYPER_PARAMS,  # ✅ 3×3×2 = 18 комбинаций!
+        parameter_override={'number_of_workers': 18}  # Кол-во запусков
+    )
+    
+    pipe.add_step(
+        name='evaluate',
+        base_task_name='evaluate_best_model',
+        parents=['train_models'],
+        execution_queue='ml-cpu'
+    )
+    
+    pipeline_id = pipe.start()
+    
+    logging.info(f"✅ Pipeline launched: {pipeline_id}")
     task.set_reported_pipeline(pipeline_id)
     
-    pipe.start() 
-    logging.info(f"Pipeline started: {pipe.id}")
-    return pipe.id
+    return pipeline_id
 
 with DAG(
     dag_id='taxi_etl_ml_pipeline',
