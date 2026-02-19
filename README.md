@@ -6,17 +6,17 @@ API: http://localhost:8008
 
 Files: http://localhost:8081
 
-# Запуск
+### Запуск и проверка работы
+```
 docker compose up -d
-
-# Проверка работы
 docker compose ps
+```
 
 В DAG используйте Task.init() из clearml
 Эксперименты появляются в ClearML UI автоматически
 ClearML Agent в Kubernetes
 
-# Как это работает
+### Как это работает
 ```text
 1. Airflow DAG → Task.init(queue="default") 
          ↓
@@ -32,13 +32,13 @@ ClearML Agent в Kubernetes
 Чарт агента ClearML находится тут
 https://github.com/clearml/clearml-helm-charts/tree/main/charts/clearml-agent 
 
-# 1. Добавить официальный репозиторий ClearML
+### 1. Добавить официальный репозиторий ClearML
 ```
 helm repo add clearml https://clearml.github.io/clearml-helm-charts
 helm repo update
 ```
 
-# 2. Создать Secret с credentials (из ClearML UI)
+###  2. Создать Secret с credentials (из ClearML UI)
 ```
 kubectl create secret generic clearml-agent-creds \
   --from-literal=access_key=YOUR_ACCESS_KEY \
@@ -46,7 +46,7 @@ kubectl create secret generic clearml-agent-creds \
   -n clearml
 ```
 
-# 3. Создать ConfigMap
+###  3. Создать ConfigMap
 ```
 kubectl create configmap clearml-agent-config \
   --from-literal=api_host=clearml-apiserver:8008 \
@@ -55,7 +55,7 @@ kubectl create configmap clearml-agent-config \
   -n clearml
   ```
 
-# 4. Установить
+###  4. Установить
 ```
 helm install clearml-agent clearml/clearml-agent \
   --namespace clearml \
