@@ -73,23 +73,6 @@ services:
       retries: 5
       start_period: 40s
 
-  redis:
-    image: redis:7-alpine
-    container_name: clearml-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-
   apiserver:
     command:
     - apiserver
