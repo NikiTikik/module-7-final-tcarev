@@ -11,7 +11,7 @@ Files: http://localhost:8081
 docker compose up -d
 docker compose ps
 ```
-![ImageDescription](./scrins/compose.png)
+![ImageDescription](./scrins/compos.png)
 
 В DAG используйте Task.init() из clearml
 Эксперименты появляются в ClearML UI автоматически
