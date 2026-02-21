@@ -11,6 +11,7 @@ Files: http://localhost:8081
 docker compose up -d
 docker compose ps
 ```
+![ImageDescription](./scrins/compose.png)
 
 В DAG используйте Task.init() из clearml
 Эксперименты появляются в ClearML UI автоматически
@@ -62,8 +63,13 @@ helm install clearml-agent clearml/clearml-agent \
   --create-namespace \
   -f values.yaml
 ```
+![ImageDescription](./scrins/queues.png)
+![ImageDescription](./scrins/workers.png)
+
 ```text
 Airflow (ETL) → ClearML Pipeline → K8s Agent (ML) → ClearML UI (результаты)
         ↓
    E2E MLOps в одном клике
 ```
+![ImageDescription](./scrins/airflow.png)
+![ImageDescription](./scrins/s3.png)
